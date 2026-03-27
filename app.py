@@ -63,9 +63,12 @@ def fetch_youtube(url: str) -> dict:
 
 
 def fetch_reddit(url: str) -> dict:
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
     try:
+        # Try JSON API first
         json_url = url.rstrip("/") + ".json"
-        headers = {"User-Agent": "ObsidianSourceNoteCreator/1.0"}
         resp = http_requests.get(json_url, headers=headers, timeout=15)
         resp.raise_for_status()
         data = resp.json()
@@ -94,7 +97,43 @@ def fetch_reddit(url: str) -> dict:
             "content": content,
         }
     except Exception:
-        return fetch_generic(url)
+        # Fallback: scrape old.reddit.com HTML
+        try:
+            old_url = url.replace("www.reddit.com", "old.reddit.com").replace("reddit.com", "old.reddit.com")
+            resp = http_requests.get(old_url, headers=headers, timeout=15)
+            resp.raise_for_status()
+            return _parse_html(resp.text, url)
+        except Exception:
+            return fetch_generic(url)
+
+
+def _parse_html(html: str, url: str) -> dict:
+    """Parse Reddit HTML as a last resort."""
+    soup = BeautifulSoup(html, "html.parser")
+
+    title = ""
+    if soup.title:
+        title = soup.title.get_text(strip=True)
+    og_title = soup.find("meta", property="og:title")
+    if og_title and og_title.get("content"):
+        title = og_title["content"]
+
+    author = ""
+    author_tag = soup.find("meta", attrs={"name": "author"})
+    if author_tag and author_tag.get("content"):
+        author = author_tag["content"]
+
+    # Try to get main content
+    article = soup.find("div", class_="expando") or soup.find("article") or soup.find("main") or soup.body
+    if article:
+        for tag in article.find_all(["nav", "footer", "aside", "script", "style", "header"]):
+            tag.decompose()
+        text = article.get_text(separator="\n", strip=True)
+    else:
+        text = soup.get_text(separator="\n", strip=True)
+
+    return {"title": title, "author": author, "content": text[:8000]}
+
 
 
 def fetch_generic(url: str) -> dict:
