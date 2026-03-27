@@ -6,7 +6,7 @@ async function getConfig() {
   const data = await browser.storage.local.get(["apiUrl", "vaultName", "topics"]);
   return {
     apiUrl: (data.apiUrl || "").replace(/\/+$/, ""),
-    vaultName: data.vaultName || "Ashley in Wonderland",
+    vaultName: data.vaultName || "",
     topics: data.topics || [],
   };
 }
@@ -28,8 +28,8 @@ function createTopicFiles(vaultName, newTopics) {
       `&content=${encodeURIComponent("")}` +
       `&silent=true`;
     browser.tabs.create({ url: uri, active: false }).then((tab) => {
-      // Close the tab after a moment — Obsidian handles the URI
-      setTimeout(() => browser.tabs.remove(tab.id).catch(() => {}), 1500);
+      // Close the tab after a delay — gives time for the protocol handler prompt
+      setTimeout(() => browser.tabs.remove(tab.id).catch(() => {}), 8000);
     });
   }
 }
@@ -110,10 +110,9 @@ async function saveSourceNote(tabId, pageUrl) {
     const data = await resp.json();
 
     if (data.success) {
-      // Create topic files for any new topics
-      if (data.new_topics && data.new_topics.length > 0) {
-        createTopicFiles(config.vaultName, data.new_topics);
-        await updateTopicCache(data.new_topics);
+      // Update topic cache with matched topics
+      if (data.topics && data.topics.length > 0) {
+        await updateTopicCache(data.topics);
       }
 
       // Create the actual note via Obsidian URI
@@ -124,7 +123,7 @@ async function saveSourceNote(tabId, pageUrl) {
 
       // Open URI to create the note
       browser.tabs.create({ url: noteUri, active: false }).then((tab) => {
-        setTimeout(() => browser.tabs.remove(tab.id).catch(() => {}), 1500);
+        setTimeout(() => browser.tabs.remove(tab.id).catch(() => {}), 8000);
       });
 
       // Build an open URI (without content) for the toast link

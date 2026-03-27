@@ -1,7 +1,7 @@
 // Load saved settings
 browser.storage.local.get(["apiUrl", "vaultName", "topics"]).then((data) => {
   document.getElementById("api-url").value = data.apiUrl || "";
-  document.getElementById("vault-name").value = data.vaultName || "Ashley in Wonderland";
+  document.getElementById("vault-name").value = data.vaultName || "";
   document.getElementById("topics").value = (data.topics || []).join(", ");
 });
 
@@ -21,24 +21,31 @@ document.getElementById("save-btn").addEventListener("click", () => {
   });
 });
 
-// Sync topics — fetches from the API's /topics endpoint if available,
-// otherwise this is a manual-only field
-document.getElementById("sync-btn").addEventListener("click", async () => {
+// Scan Topics Folder — uses a directory picker to read .md filenames
+document.getElementById("scan-btn").addEventListener("click", () => {
+  document.getElementById("folder-picker").click();
+});
+
+document.getElementById("folder-picker").addEventListener("change", (e) => {
   const status = document.getElementById("status");
-  const data = await browser.storage.local.get(["apiUrl"]);
-  if (!data.apiUrl) {
-    status.textContent = "Set API URL first.";
+  const files = Array.from(e.target.files);
+
+  if (files.length === 0) {
+    status.textContent = "No folder selected.";
     return;
   }
-  try {
-    status.textContent = "Syncing...";
-    const resp = await fetch(`${data.apiUrl}/topics`);
-    const json = await resp.json();
-    if (json.topics) {
-      document.getElementById("topics").value = json.topics.join(", ");
-      status.textContent = `Synced ${json.topics.length} topics.`;
-    }
-  } catch (err) {
-    status.textContent = "Sync not available — edit topics manually.";
+
+  // Extract .md filenames (without extension) from the selected folder
+  const topics = files
+    .filter((f) => f.name.endsWith(".md"))
+    .map((f) => f.name.replace(/\.md$/, ""))
+    .sort();
+
+  if (topics.length === 0) {
+    status.textContent = "No .md files found in that folder.";
+    return;
   }
+
+  document.getElementById("topics").value = topics.join(", ");
+  status.textContent = `Found ${topics.length} topics. Click Save to apply.`;
 });

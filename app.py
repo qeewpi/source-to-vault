@@ -155,11 +155,14 @@ def call_gemini(prompt: str) -> str:
 
 
 def match_topics(title: str, content: str, existing_topics: list[str]) -> list[str]:
-    existing_str = ", ".join(existing_topics) if existing_topics else "(none yet)"
+    if not existing_topics:
+        return []
+
+    existing_str = ", ".join(existing_topics)
 
     prompt = f"""You are helping organize an Obsidian knowledge vault.
 
-Given this source material, pick the most relevant topics. Be conservative — only pick topics that are clearly and closely related.
+Given this source material, pick the most relevant topics from the EXISTING TOPICS list below. Be conservative — only pick topics that are clearly and closely related.
 
 EXISTING TOPICS: {existing_str}
 
@@ -167,10 +170,8 @@ SOURCE TITLE: {title}
 SOURCE CONTENT (excerpt): {content[:3000]}
 
 Rules:
-- Return at least 1 topic, more only if truly necessary (max 3).
-- PREFER existing topics when there's a close match.
-- Only suggest a NEW topic if nothing existing fits closely.
-- New topic names should be lowercase kebab-case (e.g. "react-hooks", "game-sense").
+- ONLY pick from the EXISTING TOPICS list above. Do NOT suggest any new topics.
+- Pick 1-3 topics that are clearly relevant. If none fit, return an empty array.
 - Return ONLY a JSON array of topic name strings. No explanation.
 - Example: ["spring-boot", "code-optimization"]"""
 
