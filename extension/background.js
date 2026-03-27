@@ -96,12 +96,28 @@ async function saveSourceNote(tabId, pageUrl) {
 
   showToast(tabId, "Saving source note...", null);
 
+  let pageTitle = "";
+  let pageText = "";
+  try {
+    const results = await browser.tabs.executeScript(tabId, {
+      code: `({ title: document.title, text: document.body.innerText })`
+    });
+    if (results && results[0]) {
+      pageTitle = results[0].title;
+      pageText = results[0].text;
+    }
+  } catch (e) {
+    console.warn("Could not extract page text", e);
+  }
+
   try {
     const resp = await fetch(`${config.apiUrl}/create`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         url: pageUrl,
+        title: pageTitle,
+        text: pageText,
         vault_name: config.vaultName,
         existing_topics: config.topics,
       }),

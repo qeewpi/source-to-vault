@@ -307,6 +307,8 @@ def create():
     try:
         body = request.get_json()
         url = body.get("url", "").strip()
+        page_title = body.get("title", "")
+        page_text = body.get("text", "")
         media_type = body.get("media_type") or None
         existing_topics = body.get("existing_topics", [])
         vault_name = body.get("vault_name", "Ashley in Wonderland")
@@ -314,8 +316,26 @@ def create():
         if not url:
             return jsonify({"error": "Missing 'url' field"}), 400
 
-        # 1. Fetch
-        data = fetch_url(url)
+        # 1. Fetch data
+        domain = urlparse(url).hostname or ""
+        is_youtube = any(h in domain for h in ["youtube.com", "youtu.be"])
+
+        data = {}
+        if is_youtube:
+            # YouTube is best handled by server-side yt-dlp
+            data = fetch_youtube(url)
+        elif page_text:
+            # For Reddit, Medium, etc: use the exact text the user sees in their browser!
+            # Bypasses all cloud IP blocks, paywalls, and captchas.
+            data = {
+                "title": page_title,
+                "author": "",
+                "content": page_text[:8000]
+            }
+        else:
+            # Fallback to server-side fetching if extension didn't send text
+            data = fetch_url(url)
+
         title = data.get("title") or "Untitled Source"
         author = data.get("author", "")
         content = data.get("content", "")

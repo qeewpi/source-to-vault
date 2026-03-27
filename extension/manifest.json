@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "Obsidian Source Note Creator",
-  "version": "2.1",
+  "version": "2.2",
   "description": "Save the current page as an Obsidian source note with one click or right-click.",
   "browser_specific_settings": {
     "gecko": {
