@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      width: 400px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      padding: 20px;
+      color: #1a1a2e;
+      background: #fafafa;
+    }
+    h1 { font-size: 15px; font-weight: 600; margin-bottom: 16px; color: #7c3aed; }
+    label { font-size: 12px; font-weight: 500; display: block; margin-bottom: 4px; color: #444; }
+    input, textarea {
+      width: 100%;
+      padding: 8px 10px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      font-size: 12px;
+      margin-bottom: 14px;
+      background: white;
+      font-family: inherit;
+    }
+    textarea { height: 80px; resize: vertical; }
+    small { font-size: 11px; color: #888; display: block; margin-top: -10px; margin-bottom: 14px; }
+    button {
+      padding: 8px 16px;
+      background: #7c3aed;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      margin-right: 8px;
+    }
+    button:hover { background: #6d28d9; }
+    button.secondary { background: #e5e7eb; color: #374151; }
+    button.secondary:hover { background: #d1d5db; }
+    .status { margin-top: 12px; font-size: 12px; color: #059669; min-height: 18px; }
+    .btn-row { display: flex; gap: 8px; }
+  </style>
+</head>
+<body>
+  <h1>Source Note Settings</h1>
+
+  <label for="api-url">API URL</label>
+  <input type="text" id="api-url" placeholder="https://your-app.onrender.com">
+  <small>Your deployed server URL (or http://127.0.0.1:52525 for local)</small>
+
+  <label for="vault-name">Vault Name</label>
+  <input type="text" id="vault-name" placeholder="Ashley in Wonderland">
+  <small>Exactly as it appears in Obsidian</small>
+
+  <label for="topics">Cached Topics</label>
+  <textarea id="topics" placeholder="spring-boot, java, web-design, ..."></textarea>
+  <small>Comma-separated list of your existing topic names. The extension sends these to the API so it can match against them.</small>
+
+  <div class="btn-row">
+    <button id="save-btn">Save</button>
+    <button id="sync-btn" class="secondary">Sync Topics from API</button>
+  </div>
+  <div class="status" id="status"></div>
+
+  <script src="options.js"></script>
+</body>
+</html>
