@@ -5,10 +5,11 @@
 const GEMINI_MODEL = "gemini-2.5-flash";
 
 async function getConfig() {
-  const data = await browser.storage.local.get(["geminiApiKey", "vaultName", "topics"]);
+  const data = await browser.storage.local.get(["geminiApiKey", "vaultName", "topicsFolderPath", "topics"]);
   return {
     geminiApiKey: data.geminiApiKey || "",
     vaultName: data.vaultName || "",
+    topicsFolderPath: data.topicsFolderPath || "",
     topics: data.topics || [],
   };
 }
@@ -79,35 +80,50 @@ async function callGemini(prompt, apiKey) {
 }
 
 async function matchTopics(title, content, existingTopics, apiKey) {
-  if (!existingTopics || existingTopics.length === 0) return [];
+  const hasExisting = existingTopics && existingTopics.length > 0;
+  const existingStr = hasExisting ? existingTopics.join(", ") : "(none yet)";
 
-  const existingStr = existingTopics.join(", ");
   const prompt = `You are helping organize an Obsidian knowledge vault.
 
-Given this source material, pick the most relevant topics from the EXISTING TOPICS list below. Be conservative — only pick topics that are clearly and closely related.
+Given this source material, do TWO things:
+
+1. MATCH: Pick 1-3 topics from the EXISTING TOPICS list that are clearly relevant.
+2. SUGGEST: If the existing topics do not adequately cover the source material's key themes, suggest 1-2 NEW topic names. Only suggest new topics when there is a clear gap — do not suggest if existing topics already cover the material well.
 
 EXISTING TOPICS: ${existingStr}
 
 SOURCE TITLE: ${title}
 SOURCE CONTENT (excerpt): ${content.substring(0, 3000)}
 
-Rules:
-- ONLY pick from the EXISTING TOPICS list above. Do NOT suggest any new topics.
-- Pick 1-3 topics that are clearly relevant. If none fit, return an empty array.
-- Return ONLY a JSON array of topic name strings. No explanation.
-- Example: ["spring-boot", "code-optimization"]`;
+Rules for MATCHING:
+- Only pick from EXISTING TOPICS. Be conservative.
+${hasExisting ? "" : "- The existing topics list is empty, so skip matching.\n"}
+Rules for SUGGESTING new topics:
+${hasExisting ? "- Follow the naming convention of the existing topics (observe casing, use of hyphens vs spaces, level of specificity)." : "- Use kebab-case for new topic names (e.g., \"machine-learning\", \"web-design\")."}
+- Only suggest topics that represent a genuinely distinct theme not covered by existing topics.
+- Do NOT suggest topics that are synonyms or near-duplicates of existing ones.
+
+Return ONLY a JSON object with two arrays. No explanation.
+Example: {"matched": ["spring-boot", "java"], "suggested": ["api-gateway"]}
+If nothing fits and no new topics needed: {"matched": [], "suggested": []}`;
 
   try {
     const raw = await callGemini(prompt, apiKey);
-    const match = raw.match(/\[.*?\]/s);
+    const match = raw.match(/\{.*?\}/s);
     if (match) {
-      const topics = JSON.parse(match[0]);
-      return topics.filter((t) => typeof t === "string").map((t) => t.trim());
+      const result = JSON.parse(match[0]);
+      const matched = (result.matched || []).filter((t) => typeof t === "string").map((t) => t.trim());
+      const existingLower = new Set((existingTopics || []).map((t) => t.toLowerCase()));
+      const suggested = (result.suggested || [])
+        .filter((t) => typeof t === "string")
+        .map((t) => t.trim())
+        .filter((t) => !existingLower.has(t.toLowerCase()));
+      return { matched, suggested };
     }
   } catch (e) {
     console.warn("Topic matching failed", e);
   }
-  return [];
+  return { matched: [], suggested: [] };
 }
 
 async function generateContext(title, content, url, apiKey) {
@@ -130,6 +146,27 @@ Return ONLY the 1-2 sentences. No quotes, no labels, no JSON, no formatting.`;
   } catch (e) {
     console.warn("Context generation failed", e);
     return "";
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Topic Note Creation
+// ---------------------------------------------------------------------------
+
+async function createTopicNotes(suggestedTopics, vaultName, topicsFolderPath) {
+  if (!suggestedTopics.length || !topicsFolderPath) return;
+
+  for (const topic of suggestedTopics) {
+    const filePath = `${topicsFolderPath}/${topic}`;
+    const uri =
+      `obsidian://new?vault=${encodeURIComponent(vaultName)}` +
+      `&file=${encodeURIComponent(filePath)}` +
+      `&content=${encodeURIComponent("")}` +
+      `&ifexists=skip`;
+
+    const tab = await browser.tabs.create({ url: uri, active: false });
+    await new Promise((r) => setTimeout(r, 500));
+    browser.tabs.remove(tab.id).catch(() => {});
   }
 }
 
@@ -268,20 +305,29 @@ async function saveSourceNote(tabId, pageUrl) {
     const mediaType = detectMediaType(pageUrl);
 
     // 3. Call Gemini for topic matching and context (in parallel)
-    const [topics, context] = await Promise.all([
+    const [topicResult, context] = await Promise.all([
       matchTopics(title, content, config.topics, config.geminiApiKey),
       generateContext(title, content, pageUrl, config.geminiApiKey),
     ]);
 
-    // 4. Update topic cache
+    const matchedTopics = topicResult.matched || [];
+    const suggestedTopics = topicResult.suggested || [];
+    const topics = [...matchedTopics, ...suggestedTopics];
+
+    // 4. Create blank notes for new topics in Obsidian
+    if (suggestedTopics.length > 0 && config.topicsFolderPath) {
+      await createTopicNotes(suggestedTopics, config.vaultName, config.topicsFolderPath);
+    }
+
+    // 5. Update topic cache
     if (topics.length > 0) {
       await updateTopicCache(topics);
     }
 
-    // 5. Build note
+    // 6. Build note
     const noteContent = buildNote(title, author, pageUrl, topics, context);
 
-    // 6. Build file path + Obsidian URI
+    // 7. Build file path + Obsidian URI
     const filename = sanitizeFilename(title);
     const filePath = `002 - Source Material/${mediaType}/${filename}`;
 

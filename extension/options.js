@@ -1,7 +1,8 @@
 // Load saved settings
-browser.storage.local.get(["geminiApiKey", "vaultName", "topics"]).then((data) => {
+browser.storage.local.get(["geminiApiKey", "vaultName", "topicsFolderPath", "topics"]).then((data) => {
   document.getElementById("gemini-api-key").value = data.geminiApiKey || "";
   document.getElementById("vault-name").value = data.vaultName || "";
+  document.getElementById("topics-folder").value = data.topicsFolderPath || "";
   document.getElementById("topics").value = (data.topics || []).join(", ");
 });
 
@@ -9,13 +10,14 @@ browser.storage.local.get(["geminiApiKey", "vaultName", "topics"]).then((data) =
 document.getElementById("save-btn").addEventListener("click", () => {
   const geminiApiKey = document.getElementById("gemini-api-key").value.trim();
   const vaultName = document.getElementById("vault-name").value.trim();
+  const topicsFolderPath = document.getElementById("topics-folder").value.trim();
   const topicsRaw = document.getElementById("topics").value;
   const topics = topicsRaw
     .split(",")
     .map((t) => t.trim())
     .filter((t) => t.length > 0);
 
-  browser.storage.local.set({ geminiApiKey, vaultName, topics }).then(() => {
+  browser.storage.local.set({ geminiApiKey, vaultName, topicsFolderPath, topics }).then(() => {
     document.getElementById("status").textContent = "Saved!";
     setTimeout(() => (document.getElementById("status").textContent = ""), 2000);
   });
