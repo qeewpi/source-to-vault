@@ -291,9 +291,15 @@ async function saveSourceNote(tabId, pageUrl) {
       `&content=${encodeURIComponent(noteContent)}`;
 
     // Open URI to create the note
-    browser.tabs.create({ url: noteUri, active: false }).then((tab) => {
-      setTimeout(() => browser.tabs.remove(tab.id).catch(() => {}), 8000);
-    });
+    // First time: open in foreground so the user sees the protocol handler prompt
+    const { obsidianApproved } = await browser.storage.local.get("obsidianApproved");
+    const isFirstUse = !obsidianApproved;
+
+    const tab = await browser.tabs.create({ url: noteUri, active: isFirstUse });
+    if (isFirstUse) {
+      await browser.storage.local.set({ obsidianApproved: true });
+    }
+    setTimeout(() => browser.tabs.remove(tab.id).catch(() => {}), 8000);
 
     // Build an open URI for the toast link
     const openUri =
