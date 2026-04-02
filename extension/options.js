@@ -1,13 +1,13 @@
 // Load saved settings
-browser.storage.local.get(["apiUrl", "vaultName", "topics"]).then((data) => {
-  document.getElementById("api-url").value = data.apiUrl || "";
+browser.storage.local.get(["geminiApiKey", "vaultName", "topics"]).then((data) => {
+  document.getElementById("gemini-api-key").value = data.geminiApiKey || "";
   document.getElementById("vault-name").value = data.vaultName || "";
   document.getElementById("topics").value = (data.topics || []).join(", ");
 });
 
 // Save settings
 document.getElementById("save-btn").addEventListener("click", () => {
-  const apiUrl = document.getElementById("api-url").value.trim().replace(/\/+$/, "");
+  const geminiApiKey = document.getElementById("gemini-api-key").value.trim();
   const vaultName = document.getElementById("vault-name").value.trim();
   const topicsRaw = document.getElementById("topics").value;
   const topics = topicsRaw
@@ -15,7 +15,7 @@ document.getElementById("save-btn").addEventListener("click", () => {
     .map((t) => t.trim())
     .filter((t) => t.length > 0);
 
-  browser.storage.local.set({ apiUrl, vaultName, topics }).then(() => {
+  browser.storage.local.set({ geminiApiKey, vaultName, topics }).then(() => {
     document.getElementById("status").textContent = "Saved!";
     setTimeout(() => (document.getElementById("status").textContent = ""), 2000);
   });

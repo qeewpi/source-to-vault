@@ -1,11 +1,13 @@
 // ---------------------------------------------------------------------------
-// Helpers
+// Config
 // ---------------------------------------------------------------------------
 
+const GEMINI_MODEL = "gemini-2.5-flash";
+
 async function getConfig() {
-  const data = await browser.storage.local.get(["apiUrl", "vaultName", "topics"]);
+  const data = await browser.storage.local.get(["geminiApiKey", "vaultName", "topics"]);
   return {
-    apiUrl: (data.apiUrl || "").replace(/\/+$/, ""),
+    geminiApiKey: data.geminiApiKey || "",
     vaultName: data.vaultName || "",
     topics: data.topics || [],
   };
@@ -19,19 +21,173 @@ async function updateTopicCache(newTopics) {
   await browser.storage.local.set({ topics: Array.from(current) });
 }
 
-function createTopicFiles(vaultName, newTopics) {
-  // Fire obsidian://new for each new topic to create empty files in 003 - Topics/
-  for (const topic of newTopics) {
-    const uri =
-      `obsidian://new?vault=${encodeURIComponent(vaultName)}` +
-      `&file=${encodeURIComponent("003 - Topics/" + topic)}` +
-      `&content=${encodeURIComponent("")}` +
-      `&silent=true`;
-    browser.tabs.create({ url: uri, active: false }).then((tab) => {
-      // Close the tab after a delay — gives time for the protocol handler prompt
-      setTimeout(() => browser.tabs.remove(tab.id).catch(() => {}), 8000);
+// ---------------------------------------------------------------------------
+// Page Content Extraction
+// ---------------------------------------------------------------------------
+
+async function extractPageContent(tabId) {
+  try {
+    const results = await browser.tabs.executeScript(tabId, {
+      code: `({
+        title: document.title,
+        text: document.body.innerText.substring(0, 8000),
+        author: (document.querySelector('meta[name="author"]') || {}).content || ""
+      })`
     });
+    if (results && results[0]) {
+      return results[0];
+    }
+  } catch (e) {
+    console.warn("Could not extract page content", e);
   }
+  return { title: "", text: "", author: "" };
+}
+
+// ---------------------------------------------------------------------------
+// Media Type Detection
+// ---------------------------------------------------------------------------
+
+function detectMediaType(url) {
+  const host = new URL(url).hostname || "";
+  if (["youtube.com", "youtu.be"].some((h) => host.includes(h))) return "Videos";
+  if (["udemy.com", "coursera.org", "mooc", "edx.org"].some((h) => host.includes(h))) return "Courses";
+  return "Other";
+}
+
+// ---------------------------------------------------------------------------
+// Gemini API
+// ---------------------------------------------------------------------------
+
+async function callGemini(prompt, apiKey) {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
+  const resp = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { temperature: 0.3 },
+    }),
+  });
+
+  if (!resp.ok) {
+    const err = await resp.text();
+    throw new Error(`Gemini API error (${resp.status}): ${err}`);
+  }
+
+  const data = await resp.json();
+  return data.candidates[0].content.parts[0].text.trim();
+}
+
+async function matchTopics(title, content, existingTopics, apiKey) {
+  if (!existingTopics || existingTopics.length === 0) return [];
+
+  const existingStr = existingTopics.join(", ");
+  const prompt = `You are helping organize an Obsidian knowledge vault.
+
+Given this source material, pick the most relevant topics from the EXISTING TOPICS list below. Be conservative — only pick topics that are clearly and closely related.
+
+EXISTING TOPICS: ${existingStr}
+
+SOURCE TITLE: ${title}
+SOURCE CONTENT (excerpt): ${content.substring(0, 3000)}
+
+Rules:
+- ONLY pick from the EXISTING TOPICS list above. Do NOT suggest any new topics.
+- Pick 1-3 topics that are clearly relevant. If none fit, return an empty array.
+- Return ONLY a JSON array of topic name strings. No explanation.
+- Example: ["spring-boot", "code-optimization"]`;
+
+  try {
+    const raw = await callGemini(prompt, apiKey);
+    const match = raw.match(/\[.*?\]/s);
+    if (match) {
+      const topics = JSON.parse(match[0]);
+      return topics.filter((t) => typeof t === "string").map((t) => t.trim());
+    }
+  } catch (e) {
+    console.warn("Topic matching failed", e);
+  }
+  return [];
+}
+
+async function generateContext(title, content, url, apiKey) {
+  const prompt = `You are a personal knowledge management assistant. Write 1-2 sentences describing what this source covers and why it's useful to save for reference. Write as a helpful assistant, NOT as the user.
+
+Example outputs:
+- "This discussion covers why using @Data on JPA entities can break hashCode/equals and cause issues with circular relationships, and what annotations to use instead."
+- "A guide on structuring Spring Boot projects by feature rather than by layer, with practical examples of clean architecture."
+- "Reddit thread exploring techniques for reducing AI hallucinations, with three specific system prompt instructions from Anthropic's documentation."
+
+SOURCE TITLE: ${title}
+SOURCE URL: ${url}
+SOURCE CONTENT (excerpt): ${content.substring(0, 3000)}
+
+Return ONLY the 1-2 sentences. No quotes, no labels, no JSON, no formatting.`;
+
+  try {
+    const raw = await callGemini(prompt, apiKey);
+    return raw.replace(/^["']|["']$/g, "");
+  } catch (e) {
+    console.warn("Context generation failed", e);
+    return "";
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Note Builder
+// ---------------------------------------------------------------------------
+
+function sanitizeFilename(name) {
+  return name
+    .normalize("NFKD")
+    .replace(/[<>:"/\\|?*]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function buildNote(title, author, url, topics, context) {
+  const now = new Date();
+  const hours = now.getUTCHours();
+  const ampm = hours >= 12 ? "PM" : "AM";
+  const h12 = hours % 12 || 12;
+  const mm = String(now.getUTCMinutes()).padStart(2, "0");
+  const dateStr = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}-${String(now.getUTCDate()).padStart(2, "0")} ${h12}:${mm} ${ampm}`;
+
+  const topicsYaml = topics.map((t) => `  - "[[${t}]]"`).join("\n");
+
+  return `---
+time-created: ${dateStr}
+tags:
+  - source
+topics:
+${topicsYaml}
+status: unprocessed
+urls:
+  - ${url}
+author: "${author}"
+---
+
+# ${title}
+
+## Context
+<small><i>Why did you come across this? What were you looking for?</i></small>
+
+<!-- ai-generated -->
+${context}
+## Notes
+<small><i>Pull quotes, excerpts, key points. <br>
+     Jot your thoughts under any quote when they come naturally, <br>
+     no need to reflect on every one.</i></small>
+
+>
+
+---
+
+## Topics to Extract
+<small><i>Ideas or concepts worth developing into Full Notes</i></small>
+
+- [ ]
+`;
 }
 
 // ---------------------------------------------------------------------------
@@ -83,82 +239,82 @@ function showToast(tabId, message, obsidianUri) {
 }
 
 // ---------------------------------------------------------------------------
-// Core: call remote API, create note + topic files via Obsidian URI
+// Core: extract content, call Gemini, build note, open in Obsidian
 // ---------------------------------------------------------------------------
 
 async function saveSourceNote(tabId, pageUrl) {
   const config = await getConfig();
 
-  if (!config.apiUrl) {
-    showToast(tabId, "Set your API URL in extension settings first.", null);
-    return { success: false, error: "No API URL configured" };
+  if (!config.geminiApiKey) {
+    showToast(tabId, "Set your Gemini API Key in extension settings first.", null);
+    return { success: false, error: "No Gemini API Key configured" };
+  }
+
+  if (!config.vaultName) {
+    showToast(tabId, "Set your Vault Name in extension settings first.", null);
+    return { success: false, error: "No Vault Name configured" };
   }
 
   showToast(tabId, "Saving source note...", null);
 
-  let pageTitle = "";
-  let pageText = "";
   try {
-    const results = await browser.tabs.executeScript(tabId, {
-      code: `({ title: document.title, text: document.body.innerText })`
-    });
-    if (results && results[0]) {
-      pageTitle = results[0].title;
-      pageText = results[0].text;
+    // 1. Extract page content from the active tab
+    const page = await extractPageContent(tabId);
+    const title = page.title || "Untitled Source";
+    const author = page.author || "";
+    const content = page.text || "";
+
+    // 2. Detect media type
+    const mediaType = detectMediaType(pageUrl);
+
+    // 3. Call Gemini for topic matching and context (in parallel)
+    const [topics, context] = await Promise.all([
+      matchTopics(title, content, config.topics, config.geminiApiKey),
+      generateContext(title, content, pageUrl, config.geminiApiKey),
+    ]);
+
+    // 4. Update topic cache
+    if (topics.length > 0) {
+      await updateTopicCache(topics);
     }
-  } catch (e) {
-    console.warn("Could not extract page text", e);
-  }
 
-  try {
-    const resp = await fetch(`${config.apiUrl}/create`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        url: pageUrl,
-        title: pageTitle,
-        text: pageText,
-        vault_name: config.vaultName,
-        existing_topics: config.topics,
-      }),
+    // 5. Build note
+    const noteContent = buildNote(title, author, pageUrl, topics, context);
+
+    // 6. Build file path + Obsidian URI
+    const filename = sanitizeFilename(title);
+    const filePath = `002 - Source Material/${mediaType}/${filename}`;
+
+    const noteUri =
+      `obsidian://new?vault=${encodeURIComponent(config.vaultName)}` +
+      `&file=${encodeURIComponent(filePath)}` +
+      `&content=${encodeURIComponent(noteContent)}`;
+
+    // Open URI to create the note
+    browser.tabs.create({ url: noteUri, active: false }).then((tab) => {
+      setTimeout(() => browser.tabs.remove(tab.id).catch(() => {}), 8000);
     });
 
-    const data = await resp.json();
+    // Build an open URI for the toast link
+    const openUri =
+      `obsidian://open?vault=${encodeURIComponent(config.vaultName)}` +
+      `&file=${encodeURIComponent(filePath)}`;
 
-    if (data.success) {
-      // Update topic cache with matched topics
-      if (data.topics && data.topics.length > 0) {
-        await updateTopicCache(data.topics);
-      }
+    showToast(tabId, `Saved: ${title}`, openUri);
 
-      // Create the actual note via Obsidian URI
-      const noteUri =
-        `obsidian://new?vault=${encodeURIComponent(config.vaultName)}` +
-        `&file=${encodeURIComponent(data.file_path)}` +
-        `&content=${encodeURIComponent(data.note_content)}`;
-
-      // Open URI to create the note
-      browser.tabs.create({ url: noteUri, active: false }).then((tab) => {
-        setTimeout(() => browser.tabs.remove(tab.id).catch(() => {}), 8000);
-      });
-
-      // Build an open URI (without content) for the toast link
-      const openUri =
-        `obsidian://open?vault=${encodeURIComponent(config.vaultName)}` +
-        `&file=${encodeURIComponent(data.file_path)}`;
-
-      showToast(tabId, `Saved: ${data.title}`, openUri);
-      return data;
-    } else {
-      throw new Error(data.error || "Unknown error");
-    }
+    return {
+      success: true,
+      title,
+      author,
+      media_type: mediaType,
+      topics,
+      note_content: noteContent,
+      file_path: filePath,
+      vault_name: config.vaultName,
+    };
   } catch (err) {
-    let message = err.message;
-    if (message.includes("Failed to fetch") || message.includes("NetworkError")) {
-      message = "Cannot reach API. Check your API URL in settings.";
-    }
-    showToast(tabId, `Error: ${message}`, null);
-    return { success: false, error: message };
+    showToast(tabId, `Error: ${err.message}`, null);
+    return { success: false, error: err.message };
   }
 }
 

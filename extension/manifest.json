@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "Obsidian Source Note Creator",
-  "version": "2.2",
+  "version": "3.0",
   "description": "Save the current page as an Obsidian source note with one click or right-click.",
   "browser_specific_settings": {
     "gecko": {
@@ -17,7 +17,8 @@
     "activeTab",
     "contextMenus",
     "notifications",
-    "storage"
+    "storage",
+    "https://generativelanguage.googleapis.com/*"
   ],
   "background": {
     "scripts": ["background.js"]
