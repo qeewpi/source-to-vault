@@ -5,18 +5,81 @@
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
-      width: 320px;
+      width: 400px;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      padding: 16px;
+      padding: 0;
       color: #1a1a2e;
       background: #fafafa;
     }
+    
+    /* Tabs */
+    .tabs {
+      display: flex;
+      border-bottom: 1px solid #ddd;
+      background: #fff;
+    }
+    .tab-btn {
+      flex: 1;
+      padding: 12px;
+      text-align: center;
+      font-size: 13px;
+      font-weight: 600;
+      color: #666;
+      background: none;
+      border: none;
+      border-bottom: 2px solid transparent;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .tab-btn:hover {
+      color: #7c3aed;
+      background: #f9f9f9;
+    }
+    .tab-btn.active {
+      color: #7c3aed;
+      border-bottom-color: #7c3aed;
+    }
+    
+    .tab-content {
+      display: none;
+      padding: 16px;
+    }
+    .tab-content.active {
+      display: block;
+    }
+
+    /* Common Typography & Forms */
     h1 {
       font-size: 14px;
       font-weight: 600;
       margin-bottom: 12px;
       color: #7c3aed;
     }
+    label {
+      font-size: 12px;
+      font-weight: 500;
+      display: block;
+      margin-bottom: 4px;
+      color: #444;
+    }
+    input, textarea, select {
+      width: 100%;
+      padding: 8px 10px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      font-size: 12px;
+      margin-bottom: 14px;
+      background: white;
+      font-family: inherit;
+    }
+    select {
+      padding: 6px 8px; /* Slightly different for select */
+      margin-bottom: 12px;
+    }
+    textarea { height: 80px; resize: vertical; }
+    small { font-size: 11px; color: #888; display: block; margin-top: -10px; margin-bottom: 14px; }
+    
+    /* Save Note specific */
     .url-display {
       font-size: 11px;
       color: #666;
@@ -28,23 +91,9 @@
       max-height: 48px;
       overflow: hidden;
     }
-    label {
-      font-size: 12px;
-      font-weight: 500;
-      display: block;
-      margin-bottom: 4px;
-      color: #444;
-    }
-    select {
-      width: 100%;
-      padding: 6px 8px;
-      border: 1px solid #ddd;
-      border-radius: 6px;
-      font-size: 12px;
-      margin-bottom: 12px;
-      background: white;
-    }
-    button {
+
+    /* Buttons */
+    button.primary-btn {
       width: 100%;
       padding: 10px;
       background: #7c3aed;
@@ -56,11 +105,29 @@
       cursor: pointer;
       transition: background 0.2s;
     }
-    button:hover { background: #6d28d9; }
-    button:disabled {
+    button.primary-btn:hover { background: #6d28d9; }
+    button.primary-btn:disabled {
       background: #c4b5fd;
       cursor: not-allowed;
     }
+
+    button.settings-btn {
+      padding: 8px 16px;
+      background: #7c3aed;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      margin-right: 8px;
+    }
+    button.settings-btn:hover { background: #6d28d9; }
+    button.secondary { background: #e5e7eb; color: #374151; }
+    button.secondary:hover { background: #d1d5db; }
+    .btn-row { display: flex; gap: 8px; }
+
+    /* Status Messages */
     .status {
       margin-top: 10px;
       font-size: 12px;
@@ -70,23 +137,66 @@
     .status.success { color: #059669; }
     .status.error { color: #dc2626; }
     .status.loading { color: #7c3aed; }
+    
+    .status-settings {
+      margin-top: 12px;
+      font-size: 12px;
+      color: #059669;
+      min-height: 18px;
+    }
   </style>
 </head>
 <body>
-  <h1>Save as Source Note</h1>
-  <div class="url-display" id="url-display">Loading...</div>
+  <div class="tabs">
+    <button class="tab-btn active" data-tab="tab-save">Save Note</button>
+    <button class="tab-btn" data-tab="tab-settings">Settings</button>
+  </div>
 
-  <label for="media-type">Media type (auto-detected)</label>
-  <select id="media-type">
-    <option value="">Auto-detect</option>
-    <option value="Videos">Videos</option>
-    <option value="Books">Books</option>
-    <option value="Courses">Courses</option>
-    <option value="Other">Other</option>
-  </select>
+  <div id="tab-save" class="tab-content active">
+    <h1>Save as Source Note</h1>
+    <div class="url-display" id="url-display">Loading...</div>
 
-  <button id="save-btn">Save to Obsidian</button>
-  <div class="status" id="status"></div>
+    <label for="media-type">Media type (auto-detected)</label>
+    <select id="media-type">
+      <option value="">Auto-detect</option>
+      <option value="Videos">Videos</option>
+      <option value="Books">Books</option>
+      <option value="Courses">Courses</option>
+      <option value="Other">Other</option>
+    </select>
+
+    <button id="save-note-btn" class="primary-btn">Save to Obsidian</button>
+    <div class="status" id="save-status"></div>
+  </div>
+
+  <div id="tab-settings" class="tab-content">
+    <h1>Source Note Settings</h1>
+
+    <label for="gemini-api-key">Gemini API Key</label>
+    <input type="password" id="gemini-api-key" placeholder="AIzaSy...">
+    <small>Get yours free at <a href="https://aistudio.google.com/apikey" target="_blank">aistudio.google.com/apikey</a></small>
+
+    <label for="vault-name">Vault Name</label>
+    <input type="text" id="vault-name" placeholder="My Vault">
+    <small>Exactly as it appears in Obsidian</small>
+
+    <label for="topics-folder">Topics Folder Path</label>
+    <input type="text" id="topics-folder" placeholder="003 - Topics">
+    <small>Vault-relative path where topic notes are stored (e.g., "003 - Topics")</small>
+
+    <label for="topics">Cached Topics</label>
+    <textarea id="topics" placeholder="spring-boot, java, web-design, ..."></textarea>
+    <small>Used to match source notes to your existing vault topics.</small>
+
+    <div class="btn-row">
+      <button id="save-settings-btn" class="settings-btn">Save</button>
+      <button id="scan-btn" class="settings-btn secondary">Scan Topics Folder</button>
+    </div>
+    <div class="status-settings" id="settings-status"></div>
+
+    <!-- Hidden directory picker -->
+    <input type="file" id="folder-picker" webkitdirectory style="display: none;">
+  </div>
 
   <script src="popup.js"></script>
 </body>
