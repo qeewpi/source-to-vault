@@ -263,11 +263,12 @@ function sanitizeFilename(name) {
 
 function buildNote(title, author, url, topics, context) {
   const now = new Date();
-  const hours = now.getUTCHours();
+  // Use local time so the note matches the user's actual save time.
+  const hours = now.getHours();
   const ampm = hours >= 12 ? "PM" : "AM";
   const h12 = hours % 12 || 12;
-  const mm = String(now.getUTCMinutes()).padStart(2, "0");
-  const dateStr = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}-${String(now.getUTCDate()).padStart(2, "0")} ${h12}:${mm} ${ampm}`;
+  const mm = String(now.getMinutes()).padStart(2, "0");
+  const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")} ${h12}:${mm} ${ampm}`;
 
   const topicsYaml = topics.map((t) => `  - "[[${t}]]"`).join("\n");
 
