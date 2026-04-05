@@ -16,7 +16,7 @@
   "permissions": [
     "activeTab",
     "contextMenus",
-    "notifications",
+    "windows",
     "storage",
     "https://generativelanguage.googleapis.com/*"
   ],

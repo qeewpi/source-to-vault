@@ -23,6 +23,85 @@ async function updateTopicCache(newTopics) {
 }
 
 // ---------------------------------------------------------------------------
+// Topic Review Dialogs
+// ---------------------------------------------------------------------------
+
+const pendingTopicReviews = new Map();
+
+browser.windows.onRemoved.addListener((windowId) => {
+  for (const [reviewId, pending] of pendingTopicReviews.entries()) {
+    if (pending.windowId !== windowId || pending.settled) continue;
+
+    pending.settled = true;
+    pendingTopicReviews.delete(reviewId);
+    pending.resolve(false);
+    break;
+  }
+});
+
+function dedupeTopics(topics) {
+  const seen = new Set();
+  const result = [];
+
+  for (const topic of topics || []) {
+    const normalized = topic.trim().toLowerCase();
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    result.push(topic.trim());
+  }
+
+  return result;
+}
+
+async function promptForTopicApproval(topic) {
+  const reviewId = `new-topic-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  const reviewUrl = browser.runtime.getURL(
+    `review-topics.html?reviewId=${encodeURIComponent(reviewId)}&topic=${encodeURIComponent(topic)}`
+  );
+
+  return new Promise((resolve) => {
+    pendingTopicReviews.set(reviewId, {
+      resolve,
+      settled: false,
+      windowId: null,
+    });
+
+    browser.windows
+      .create({
+        url: reviewUrl,
+        type: "popup",
+        width: 460,
+        height: 300,
+      })
+      .then((window) => {
+        const pending = pendingTopicReviews.get(reviewId);
+        if (!pending) return;
+        pending.windowId = window.id;
+      })
+      .catch(() => {
+        const pending = pendingTopicReviews.get(reviewId);
+        if (!pending || pending.settled) return;
+        pending.settled = true;
+        pendingTopicReviews.delete(reviewId);
+        resolve(false);
+      });
+  });
+}
+
+async function reviewSuggestedTopics(suggestedTopics) {
+  const approvedTopics = [];
+
+  for (const topic of dedupeTopics(suggestedTopics)) {
+    const approved = await promptForTopicApproval(topic);
+    if (approved) {
+      approvedTopics.push(topic);
+    }
+  }
+
+  return approvedTopics;
+}
+
+// ---------------------------------------------------------------------------
 // Page Content Extraction
 // ---------------------------------------------------------------------------
 
@@ -310,18 +389,19 @@ async function saveSourceNote(tabId, pageUrl) {
       generateContext(title, content, pageUrl, config.geminiApiKey),
     ]);
 
-    const matchedTopics = topicResult.matched || [];
-    const suggestedTopics = topicResult.suggested || [];
-    const topics = [...matchedTopics, ...suggestedTopics];
+    const matchedTopics = dedupeTopics(topicResult.matched || []);
+    const suggestedTopics = dedupeTopics(topicResult.suggested || []);
+    const approvedSuggestedTopics = suggestedTopics.length > 0 ? await reviewSuggestedTopics(suggestedTopics) : [];
+    const topics = [...matchedTopics, ...approvedSuggestedTopics];
 
-    // 4. Create blank notes for new topics in Obsidian
-    if (suggestedTopics.length > 0 && config.topicsFolderPath) {
-      await createTopicNotes(suggestedTopics, config.vaultName, config.topicsFolderPath);
+    // 4. Create blank notes for approved new topics in Obsidian
+    if (approvedSuggestedTopics.length > 0 && config.topicsFolderPath) {
+      await createTopicNotes(approvedSuggestedTopics, config.vaultName, config.topicsFolderPath);
     }
 
-    // 5. Update topic cache
-    if (topics.length > 0) {
-      await updateTopicCache(topics);
+    // 5. Update topic cache with topics the user approved
+    if (approvedSuggestedTopics.length > 0) {
+      await updateTopicCache(approvedSuggestedTopics);
     }
 
     // 6. Build note
@@ -389,6 +469,21 @@ browser.contextMenus.onClicked.addListener(async (info, tab) => {
 
 // Expose saveSourceNote for the popup to use
 browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg.action === "topicReviewResponse") {
+    const pending = pendingTopicReviews.get(msg.reviewId);
+    if (!pending || pending.settled) {
+      sendResponse({ success: false });
+      return false;
+    }
+
+    pending.settled = true;
+    pendingTopicReviews.delete(msg.reviewId);
+    pending.resolve(Boolean(msg.approved));
+    browser.windows.remove(pending.windowId).catch(() => {});
+    sendResponse({ success: true });
+    return false;
+  }
+
   if (msg.action === "saveSourceNote") {
     saveSourceNote(msg.tabId, msg.url).then(sendResponse);
     return true; // async response

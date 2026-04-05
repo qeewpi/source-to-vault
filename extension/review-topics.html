@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Review Suggested Topic</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background:
+        radial-gradient(circle at top, rgba(124, 58, 237, 0.12), transparent 34%),
+        linear-gradient(160deg, #fafafa 0%, #f3f0ff 100%);
+      color: #1a1a2e;
+    }
+    .wrap {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .card {
+      width: 100%;
+      max-width: 420px;
+      background: rgba(255, 255, 255, 0.97);
+      border: 1px solid #e5e7eb;
+      border-radius: 18px;
+      box-shadow: 0 16px 40px rgba(15, 23, 42, 0.12);
+      padding: 20px;
+    }
+    .eyebrow {
+      display: inline-block;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #7c3aed;
+      margin-bottom: 10px;
+    }
+    h1 {
+      margin: 0 0 10px;
+      font-size: 20px;
+      line-height: 1.2;
+      color: #111827;
+    }
+    p {
+      margin: 0 0 14px;
+      color: #4b5563;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+    .topic {
+      border: 1px solid #ddd6fe;
+      background: #f5f3ff;
+      color: #4c1d95;
+      border-radius: 12px;
+      padding: 12px 14px;
+      font-size: 15px;
+      font-weight: 600;
+      margin: 12px 0 18px;
+      word-break: break-word;
+    }
+    .actions {
+      display: flex;
+      gap: 10px;
+    }
+    button {
+      flex: 1;
+      border: 0;
+      border-radius: 10px;
+      padding: 11px 14px;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: transform 0.15s ease, background 0.15s ease;
+    }
+    button:hover { transform: translateY(-1px); }
+    button:disabled { opacity: 0.7; cursor: not-allowed; transform: none; }
+    .primary {
+      background: #7c3aed;
+      color: white;
+    }
+    .secondary {
+      background: #e5e7eb;
+      color: #374151;
+    }
+    .hint {
+      margin-top: 12px;
+      font-size: 12px;
+      color: #6b7280;
+    }
+    .error {
+      display: none;
+      margin-top: 12px;
+      padding: 10px 12px;
+      border-radius: 10px;
+      background: #fef2f2;
+      color: #b91c1c;
+      font-size: 13px;
+      border: 1px solid #fecaca;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <div class="eyebrow">Suggested Topic</div>
+      <h1>Create this new topic note?</h1>
+      <p>Gemini thinks this is a distinct topic that is not already covered by your existing list.</p>
+      <div class="topic" id="topic">Loading...</div>
+      <div class="actions">
+        <button id="approve-btn" class="primary">Create note</button>
+        <button id="skip-btn" class="secondary">Skip</button>
+      </div>
+      <div class="hint">Skipping this topic does not stop the source note from being saved.</div>
+      <div class="error" id="error"></div>
+    </div>
+  </div>
+  <script src="review-topics.js"></script>
+</body>
+</html>
