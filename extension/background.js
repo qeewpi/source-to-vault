@@ -108,11 +108,43 @@ async function reviewSuggestedTopics(suggestedTopics) {
 async function extractPageContent(tabId) {
   try {
     const results = await browser.tabs.executeScript(tabId, {
-      code: `({
-        title: document.title,
-        text: document.body.innerText.substring(0, 8000),
-        author: (document.querySelector('meta[name="author"]') || {}).content || ""
-      })`
+      code: `(() => {
+        const pickContent = () => {
+          const selectors = [
+            "main",
+            "article",
+            "[role='main']",
+            ".mw-parser-output",
+            "#mw-content-text",
+            ".article-content",
+            ".post-content",
+            ".entry-content"
+          ];
+
+          for (const selector of selectors) {
+            const node = document.querySelector(selector);
+            const text = (node?.innerText || "").replace(/\\s+/g, " ").trim();
+            if (text.length > 400) return text;
+          }
+
+          return (document.body?.innerText || "").replace(/\\s+/g, " ").trim();
+        };
+
+        const description =
+          document.querySelector('meta[name="description"]')?.content ||
+          document.querySelector('meta[property="og:description"]')?.content ||
+          "";
+
+        return {
+          title: document.title,
+          text: pickContent().substring(0, 12000),
+          author:
+            document.querySelector('meta[name="author"]')?.content ||
+            document.querySelector('meta[property="article:author"]')?.content ||
+            "",
+          description
+        };
+      })()`
     });
     if (results && results[0]) {
       return results[0];
@@ -120,7 +152,7 @@ async function extractPageContent(tabId) {
   } catch (e) {
     console.warn("Could not extract page content", e);
   }
-  return { title: "", text: "", author: "" };
+  return { title: "", text: "", author: "", description: "" };
 }
 
 // ---------------------------------------------------------------------------
@@ -132,6 +164,61 @@ function detectMediaType(url) {
   if (["youtube.com", "youtu.be"].some((h) => host.includes(h))) return "Videos";
   if (["udemy.com", "coursera.org", "mooc", "edx.org"].some((h) => host.includes(h))) return "Courses";
   return "Other";
+}
+
+function normalizeWhitespace(value) {
+  return (value || "").replace(/\s+/g, " ").trim();
+}
+
+function toComparableTokens(value) {
+  return normalizeWhitespace(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, " ")
+    .split(/[\s-]+/)
+    .filter((token) => token.length > 2);
+}
+
+function fallbackMatchTopics(title, content, existingTopics) {
+  const haystack = ` ${[title, content].map(toComparableTokens).flat().join(" ")} `;
+  const matches = [];
+
+  for (const topic of existingTopics || []) {
+    const topicTokens = toComparableTokens(topic);
+    if (!topicTokens.length) continue;
+
+    const hitCount = topicTokens.filter((token) => haystack.includes(` ${token} `)).length;
+    if (hitCount === topicTokens.length || hitCount >= 2) {
+      matches.push(topic);
+    }
+  }
+
+  return dedupeTopics(matches).slice(0, 3);
+}
+
+function fallbackContext(title, content, url, description) {
+  const domain = (() => {
+    try {
+      return new URL(url).hostname.replace(/^www\./, "");
+    } catch {
+      return "this page";
+    }
+  })();
+
+  const summarySource = normalizeWhitespace(description) || normalizeWhitespace(content);
+  const summary = summarySource
+    .split(/(?<=[.!?])\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .join(" ")
+    .substring(0, 320)
+    .trim();
+
+  if (summary) {
+    const cleanSummary = /[.!?]$/.test(summary) ? summary : `${summary}.`;
+    return `This page from ${domain} covers ${cleanSummary.charAt(0).toLowerCase()}${cleanSummary.slice(1)} Useful as a quick reference for ${title}.`;
+  }
+
+  return `This page from ${domain} appears relevant to ${title} and is worth keeping as a reference.`;
 }
 
 // ---------------------------------------------------------------------------
@@ -261,6 +348,10 @@ function sanitizeFilename(name) {
     .trim();
 }
 
+function yamlQuote(value) {
+  return `"${String(value || "").replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+}
+
 function buildNote(title, author, url, topics, context) {
   const now = new Date();
   // Use local time so the note matches the user's actual save time.
@@ -270,7 +361,9 @@ function buildNote(title, author, url, topics, context) {
   const mm = String(now.getMinutes()).padStart(2, "0");
   const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")} ${h12}:${mm} ${ampm}`;
 
-  const topicsYaml = topics.map((t) => `  - "[[${t}]]"`).join("\n");
+  const topicsYaml = topics.length > 0
+    ? topics.map((t) => `  - "[[${t}]]"`).join("\n")
+    : "  []";
 
   return `---
 time-created: ${dateStr}
@@ -281,7 +374,7 @@ ${topicsYaml}
 status: unprocessed
 urls:
   - ${url}
-author: "${author}"
+author: ${yamlQuote(author)}
 ---
 
 # ${title}
@@ -380,6 +473,7 @@ async function saveSourceNote(tabId, pageUrl) {
     const title = page.title || "Untitled Source";
     const author = page.author || "";
     const content = page.text || "";
+    const description = page.description || "";
 
     // 2. Detect media type
     const mediaType = detectMediaType(pageUrl);
@@ -393,7 +487,11 @@ async function saveSourceNote(tabId, pageUrl) {
     const matchedTopics = dedupeTopics(topicResult.matched || []);
     const suggestedTopics = dedupeTopics(topicResult.suggested || []);
     const approvedSuggestedTopics = suggestedTopics.length > 0 ? await reviewSuggestedTopics(suggestedTopics) : [];
-    const topics = [...matchedTopics, ...approvedSuggestedTopics];
+    const fallbackTopics = matchedTopics.length === 0 && approvedSuggestedTopics.length === 0
+      ? fallbackMatchTopics(title, content, config.topics)
+      : [];
+    const topics = dedupeTopics([...matchedTopics, ...approvedSuggestedTopics, ...fallbackTopics]);
+    const resolvedContext = normalizeWhitespace(context) || fallbackContext(title, content, pageUrl, description);
 
     // 4. Create blank notes for approved new topics in Obsidian
     if (approvedSuggestedTopics.length > 0 && config.topicsFolderPath) {
@@ -406,7 +504,7 @@ async function saveSourceNote(tabId, pageUrl) {
     }
 
     // 6. Build note
-    const noteContent = buildNote(title, author, pageUrl, topics, context);
+    const noteContent = buildNote(title, author, pageUrl, topics, resolvedContext);
 
     // 7. Build file path + Obsidian URI
     const filename = sanitizeFilename(title);
